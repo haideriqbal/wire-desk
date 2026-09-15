@@ -82,14 +82,33 @@
     "A simple story may need only two content posts plus the link post; a complex story may need five plus it.",
     "",
     "RESEARCH FIRST",
-    "Search results relevant to this story have been provided to you automatically before you draft (pulled from",
-    "a live web search run ahead of this request). Use them to verify facts, figures, dates, names and",
-    "attributions rather than relying on memory — note which outlet did the original reporting so you can credit",
-    "it per the house style above. If the provided results don't cover something, or conflict with each other, do",
-    "not invent facts to fill the gap: work only from the headline, the source URL (as a bare citation, not as",
-    "content you've read), whatever is supplied under \"Known facts / excerpts\" below, and what you reliably",
-    "already know — and lean on the evidentiary care described above for anything you can't confirm, rather than",
-    "guessing."
+    "A research brief has already been prepared for you below by a separate research pass that used live web",
+    "search — trust it as your factual foundation rather than relying on memory. It states plainly when",
+    "something could not be confirmed; if so, do not invent it — hedge or omit per the evidentiary care above.",
+    "Note which outlet did the original reporting, from the brief, so you can credit it per the house style above."
+  ].join("\n");
+
+  var RESEARCH_INSTRUCTIONS = [
+    "You are a careful news researcher with live web search. Investigate the story described below as",
+    "thoroughly as it needs — search more than once if the first results don't cover something important",
+    "(a name, a figure, the outlet that broke it, a rebuttal from the other side, etc).",
+    "",
+    "Then write a plain-text research brief with exactly these six labeled sections, in this order:",
+    "",
+    "WHO:",
+    "WHAT:",
+    "WHEN & WHERE:",
+    "HOW:",
+    "WHY:",
+    "CONTEXT (why it matters, background, what happens next):",
+    "",
+    "Rules:",
+    "- State only what your search results actually support. If something important isn't confirmed by what",
+    "  you found, say so explicitly in that section (e.g. \"Not confirmed by available sources\") instead of",
+    "  guessing or inventing.",
+    "- Name the outlet(s) that did the original reporting, in the WHO or WHAT section.",
+    "- Keep it factual and neutral — this is raw research material for someone else to write from, not the",
+    "  finished piece. Do not draft any social media post or thread here."
   ].join("\n");
 
   // Kept as system + user, not one big user message: the OpenRouter web plugin's
@@ -111,6 +130,14 @@
       "\n\nSTORY\nHeadline: " + headline +
       "\nSource URL: " + (sourceUrl || "(none given)") +
       "\nKnown facts / excerpts supplied by the editor (may be empty):\n" + (context || "(none given)");
+  }
+
+  function buildDraftUserPrompt(brief, headline, sourceUrl) {
+    return "RESEARCH BRIEF (already verified via live web search):\n" + brief +
+      "\n\nOriginal headline: " + headline +
+      "\nSource URL: " + (sourceUrl || "(none given)") +
+      "\n\nWrite the Threads thread now, following the house style above. Do not repeat the brief's section " +
+      "labels (WHO/WHAT/etc.) in the actual posts — write flowing prose per the voice rules.";
   }
 
   // ---- parsing ----
@@ -201,15 +228,8 @@
     return "Something went wrong — try again.";
   }
 
-  async function callOpenRouter(messages, signal) {
+  async function postChatCompletion(body, signal) {
     var apiKey = getApiKey();
-    var body = {
-      model: "z-ai/glm-5.3-flash",
-      messages: messages,
-      plugins: [{ id: "web", engine: "perplexity", max_results: 5 }],
-      response_format: { type: "json_object" },
-      reasoning: { effort: "high" }
-    };
     var res;
     try {
       res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -235,6 +255,39 @@
     var data = await res.json();
     var content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (typeof content !== "string" || !content.trim()) throw { code: "invalid_json" };
+    return content;
+  }
+
+  // Stage 1: a research-capable model with real (multi-query, model-driven) native web
+  // search does the actual investigating and writes a plain-text brief. Stage 2 (GLM,
+  // no search) only ever sees that brief — separating "find the facts" from "write in
+  // voice" so neither task competes with the other in one pass.
+  async function runResearch(headline, sourceUrl, context, signal) {
+    var body = {
+      model: "google/gemini-3.8-flash",
+      messages: [
+        { role: "system", content: RESEARCH_INSTRUCTIONS },
+        { role: "user", content: buildUserPrompt(headline, sourceUrl, context) }
+      ],
+      plugins: [{ id: "web" }],
+      web_search_options: { search_context_size: "high" },
+      reasoning: { effort: "high" }
+    };
+    var content = await postChatCompletion(body, signal);
+    return content.trim();
+  }
+
+  async function runDraft(brief, headline, sourceUrl, signal) {
+    var body = {
+      model: "z-ai/glm-5.3-flash",
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: buildDraftUserPrompt(brief, headline, sourceUrl) }
+      ],
+      response_format: { type: "json_object" },
+      reasoning: { effort: "high" }
+    };
+    var content = await postChatCompletion(body, signal);
     var parsed;
     try {
       parsed = JSON.parse(content);
@@ -346,14 +399,12 @@
 
     setGenerating(true);
     currentController = new AbortController();
-    setStatus(regenerate ? "Redrafting…" : "Searching the web and drafting…");
+    setStatus(regenerate ? "Re-researching…" : "Researching…");
 
     try {
-      var messages = [
-        { role: "system", content: buildSystemPrompt() },
-        { role: "user", content: buildUserPrompt(headline, sourceUrl, context) }
-      ];
-      var raw = await callOpenRouter(messages, currentController.signal);
+      var brief = await runResearch(headline, sourceUrl, context, currentController.signal);
+      setStatus("Drafting…");
+      var raw = await runDraft(brief, headline, sourceUrl, currentController.signal);
       var posts = normalizePosts(raw);
       if (!posts) throw { code: "invalid_json" };
       var entry = { headline: headline, sourceUrl: sourceUrl, context: context, posts: posts, createdAt: new Date().toISOString() };
@@ -543,7 +594,7 @@
 
   refreshGenerateGate();
   if (el.contextHint) {
-    el.contextHint.textContent = "OpenRouter's web plugin searches automatically before drafting (via Exa). Add anything extra you want it to prioritize.";
+    el.contextHint.textContent = "A research pass (Gemini, live web search) runs before drafting (GLM). Add anything extra you want it to prioritize.";
   }
   renderHistory(loadHistory());
 })();
