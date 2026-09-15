@@ -353,6 +353,28 @@
     flex-wrap: wrap;
   }
 
+  .draft-sources {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .sources-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .sources-list a {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    word-break: break-all;
+  }
+  .sources-list a:hover { color: var(--accent-strong); text-decoration: underline; }
+
   /* History */
   .history-list { display: flex; flex-direction: column; gap: 10px; }
   .history-empty {
@@ -505,6 +527,10 @@
           <button class="btn-secondary" id="btn-regenerate" type="button">Regenerate</button>
           <button class="btn-ghost" id="btn-copy-all" type="button">Copy full thread</button>
           <button class="btn-ghost" id="btn-new" type="button">New draft</button>
+        </div>
+        <div class="draft-sources" id="draft-sources" hidden>
+          <p class="section-label">Sources</p>
+          <ul class="sources-list" id="sources-list"></ul>
         </div>
       </div>
     </div>

@@ -31,7 +31,9 @@
     settingsKeyInput: document.getElementById("settings-key-input"),
     settingsKeyToggle: document.getElementById("settings-key-toggle"),
     settingsKeyForget: document.getElementById("settings-key-forget"),
-    settingsClose: document.getElementById("settings-close")
+    settingsClose: document.getElementById("settings-close"),
+    draftSources: document.getElementById("draft-sources"),
+    sourcesList: document.getElementById("sources-list")
   };
 
   // ---- HOUSE_STYLE / buildPrompt ----
@@ -253,9 +255,25 @@
       throw err;
     }
     var data = await res.json();
-    var content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    var message = data.choices && data.choices[0] && data.choices[0].message;
+    var content = message && message.content;
     if (typeof content !== "string" || !content.trim()) throw { code: "invalid_json" };
-    return content;
+    return { content: content, annotations: (message && message.annotations) || [] };
+  }
+
+  // Citations come back as OpenAI-style url_citation annotations, standardized by
+  // OpenRouter across engines. Dedupe by URL since one source can be cited for
+  // several spans in the response.
+  function sourcesFromAnnotations(annotations) {
+    var seen = {};
+    var sources = [];
+    (annotations || []).forEach(function (a) {
+      var c = a && a.url_citation;
+      if (!c || !c.url || seen[c.url]) return;
+      seen[c.url] = true;
+      sources.push({ url: c.url, title: c.title || c.url });
+    });
+    return sources;
   }
 
   // Stage 1: a research-capable model with real (multi-query, model-driven) native web
@@ -273,8 +291,8 @@
       web_search_options: { search_context_size: "high" },
       reasoning: { effort: "high" }
     };
-    var content = await postChatCompletion(body, signal);
-    return content.trim();
+    var result = await postChatCompletion(body, signal);
+    return { brief: result.content.trim(), sources: sourcesFromAnnotations(result.annotations) };
   }
 
   async function runDraft(brief, headline, sourceUrl, signal) {
@@ -287,7 +305,8 @@
       response_format: { type: "json_object" },
       reasoning: { effort: "high" }
     };
-    var content = await postChatCompletion(body, signal);
+    var result = await postChatCompletion(body, signal);
+    var content = result.content;
     var parsed;
     try {
       parsed = JSON.parse(content);
@@ -314,12 +333,29 @@
     ta.style.height = (ta.scrollHeight + 2) + "px";
   }
 
+  function fillSourcesList(ulEl, sources) {
+    ulEl.innerHTML = "";
+    (sources || []).forEach(function (s) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.href = s.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = s.title || s.url;
+      li.appendChild(a);
+      ulEl.appendChild(li);
+    });
+  }
+
   function renderThread(entry) {
     el.outputEmpty.hidden = true;
     el.outputFilled.hidden = false;
     el.draftHeadline.textContent = entry.headline;
     el.draftSource.textContent = entry.sourceUrl || "";
     el.threadContainer.innerHTML = "";
+    var sources = entry.sources || [];
+    el.draftSources.hidden = !sources.length;
+    fillSourcesList(el.sourcesList, sources);
     var total = entry.posts.length;
     entry.posts.forEach(function (postText, i) {
       var post = document.createElement("div");
@@ -402,12 +438,12 @@
     setStatus(regenerate ? "Re-researching…" : "Researching…");
 
     try {
-      var brief = await runResearch(headline, sourceUrl, context, currentController.signal);
+      var research = await runResearch(headline, sourceUrl, context, currentController.signal);
       setStatus("Drafting…");
-      var raw = await runDraft(brief, headline, sourceUrl, currentController.signal);
+      var raw = await runDraft(research.brief, headline, sourceUrl, currentController.signal);
       var posts = normalizePosts(raw);
       if (!posts) throw { code: "invalid_json" };
-      var entry = { headline: headline, sourceUrl: sourceUrl, context: context, posts: posts, createdAt: new Date().toISOString() };
+      var entry = { headline: headline, sourceUrl: sourceUrl, context: context, posts: posts, sources: research.sources, createdAt: new Date().toISOString() };
       renderThread(entry);
       setStatus("Drafted " + posts.length + " posts.");
       saveToHistory(entry);
@@ -447,7 +483,7 @@
   }
   function saveToHistory(entry) {
     var arr = loadHistory();
-    var withId = { id: "d" + Date.now() + Math.random().toString(36).slice(2, 8), headline: entry.headline, sourceUrl: entry.sourceUrl || "", context: entry.context || "", posts: entry.posts, createdAt: entry.createdAt };
+    var withId = { id: "d" + Date.now() + Math.random().toString(36).slice(2, 8), headline: entry.headline, sourceUrl: entry.sourceUrl || "", context: entry.context || "", posts: entry.posts, sources: entry.sources || [], createdAt: entry.createdAt };
     arr.unshift(withId);
     writeHistory(arr);
     renderHistory(loadHistory());
@@ -569,6 +605,20 @@
     confirmWrap.appendChild(deleteBtn);
     footer.appendChild(confirmWrap);
     body.appendChild(footer);
+
+    if (data.sources && data.sources.length) {
+      var sourcesBox = document.createElement("div");
+      sourcesBox.className = "draft-sources";
+      var label = document.createElement("p");
+      label.className = "section-label";
+      label.textContent = "Sources";
+      sourcesBox.appendChild(label);
+      var ul = document.createElement("ul");
+      ul.className = "sources-list";
+      fillSourcesList(ul, data.sources);
+      sourcesBox.appendChild(ul);
+      body.appendChild(sourcesBox);
+    }
   }
 
   // ---- init ----
