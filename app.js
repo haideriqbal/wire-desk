@@ -52,9 +52,9 @@
     "VOICE",
     "- Calm, plain, informed narrator. Precise, not \"punchy AI\".",
     "- Post 1 leads with the most important verified fact and the immediate stakes — usually actor + concrete",
-    "  action. If the fact comes from a leak, court filing, investigation, or FOIA document, attribute the outlet",
-    "  or source inline. A modest bridge like \"Here is what we know so far\" or \"Here is what this means\" is fine",
-    "  but only when it earns its place.",
+    "  action. If the fact comes from a leak, court filing, investigation, or FOIA document, attribute",
+    "  it inline. A modest bridge like \"Here is what we know so far\" or \"Here is what this means\" is fine",
+    "  .",
     "- Later posts unfold progressively: explain the mechanism in plain language, give concrete scale or evidence,",
     "  identify the material catch/accountability gap/failure mode, state the consequence or current uncertainty.",
     "- Define necessary jargon inline. Use an everyday analogy only when it genuinely clarifies the mechanism —",
@@ -69,7 +69,7 @@
     "- Avoid fake \"practitioner insight\", hype, moralising, and stock phrases like \"the terrifying reality\",",
     "  \"here's the wild part\", \"what nobody is telling you\", \"changes everything\", \"you won't believe\",",
     "  \"let that sink in\".",
-    "- Natural connective language (\"However\", \"The problem is\", \"This matters because\", \"Despite\", \"Now\") is",
+    "- Natural connective language (\"However\", \"The problem is\", \"This matters because\", \"Despite\", \"Now\", \"However\") is",
     "  fine — don't force a repeated beat template.",
     "- Never use section labels like \"What happened:\". Never repeat the headline in different words across posts.",
     "",
@@ -197,9 +197,9 @@
     var body = {
       model: "z-ai/glm-5.3-flash",
       messages: [{ role: "user", content: prompt }],
-      plugins: [{ id: "web", max_results: 5 }],
+      plugins: [{ id: "web", engine: "perplexity", max_results: 5 }],
       response_format: { type: "json_object" },
-      reasoning: { effort: "low" }
+      reasoning: { effort: "high" }
     };
     var res;
     try {
