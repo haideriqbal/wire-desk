@@ -52,9 +52,9 @@
     "VOICE",
     "- Calm, plain, informed narrator. Precise, not \"punchy AI\".",
     "- Post 1 leads with the most important verified fact and the immediate stakes — usually actor + concrete",
-    "  action. If the fact comes from a leak, court filing, investigation, or FOIA document, attribute",
-    "  it inline. A modest bridge like \"Here is what we know so far\" or \"Here is what this means\" is fine",
-    "  .",
+    "  action. If the fact comes from a leak, court filing, investigation, or FOIA document, attribute the outlet",
+    "  or source inline. A modest bridge like \"Here is what we know so far\" or \"Here is what this means\" is fine",
+    "  but only when it earns its place.",
     "- Later posts unfold progressively: explain the mechanism in plain language, give concrete scale or evidence,",
     "  identify the material catch/accountability gap/failure mode, state the consequence or current uncertainty.",
     "- Define necessary jargon inline. Use an everyday analogy only when it genuinely clarifies the mechanism —",
@@ -69,7 +69,7 @@
     "- Avoid fake \"practitioner insight\", hype, moralising, and stock phrases like \"the terrifying reality\",",
     "  \"here's the wild part\", \"what nobody is telling you\", \"changes everything\", \"you won't believe\",",
     "  \"let that sink in\".",
-    "- Natural connective language (\"However\", \"The problem is\", \"This matters because\", \"Despite\", \"Now\", \"However\") is",
+    "- Natural connective language (\"However\", \"The problem is\", \"This matters because\", \"Despite\", \"Now\") is",
     "  fine — don't force a repeated beat template.",
     "- Never use section labels like \"What happened:\". Never repeat the headline in different words across posts.",
     "",
@@ -92,16 +92,25 @@
     "guessing."
   ].join("\n");
 
-  function buildPrompt(headline, sourceUrl, context) {
-    var today = new Date().toISOString().slice(0, 10);
+  // Kept as system + user, not one big user message: the OpenRouter web plugin's
+  // non-native search engines (Exa/Perplexity/etc.) search on the last user message
+  // verbatim as the query. A single message mixing house-style instructions with the
+  // story buries the actual headline under paragraphs of style rules, producing
+  // generic/irrelevant search results instead of ones about the story.
+  function buildSystemPrompt() {
     return HOUSE_STYLE +
-      "\n\nTODAY'S DATE: " + today +
-      "\n\nSTORY\nHeadline: " + headline +
-      "\nSource URL: " + (sourceUrl || "(none given)") +
-      "\nKnown facts / excerpts supplied by the editor (may be empty):\n" + (context || "(none given)") +
-      "\n\nYour reply must be exactly one JSON object and nothing else — no narration, no markdown code fence: " +
+      "\n\nOUTPUT FORMAT\n" +
+      "Your reply must be exactly one JSON object and nothing else — no narration, no markdown code fence: " +
       "{\"posts\": [\"...\", \"...\"]} — one string per post, each already including its \"🧵 N/T\" suffix (or the " +
       "final \"Read more\" line), in posting order.";
+  }
+
+  function buildUserPrompt(headline, sourceUrl, context) {
+    var today = new Date().toISOString().slice(0, 10);
+    return "TODAY'S DATE: " + today +
+      "\n\nSTORY\nHeadline: " + headline +
+      "\nSource URL: " + (sourceUrl || "(none given)") +
+      "\nKnown facts / excerpts supplied by the editor (may be empty):\n" + (context || "(none given)");
   }
 
   // ---- parsing ----
@@ -192,11 +201,11 @@
     return "Something went wrong — try again.";
   }
 
-  async function callOpenRouter(prompt, signal) {
+  async function callOpenRouter(messages, signal) {
     var apiKey = getApiKey();
     var body = {
       model: "z-ai/glm-5.3-flash",
-      messages: [{ role: "user", content: prompt }],
+      messages: messages,
       plugins: [{ id: "web", engine: "perplexity", max_results: 5 }],
       response_format: { type: "json_object" },
       reasoning: { effort: "high" }
@@ -340,8 +349,11 @@
     setStatus(regenerate ? "Redrafting…" : "Searching the web and drafting…");
 
     try {
-      var prompt = buildPrompt(headline, sourceUrl, context);
-      var raw = await callOpenRouter(prompt, currentController.signal);
+      var messages = [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: buildUserPrompt(headline, sourceUrl, context) }
+      ];
+      var raw = await callOpenRouter(messages, currentController.signal);
       var posts = normalizePosts(raw);
       if (!posts) throw { code: "invalid_json" };
       var entry = { headline: headline, sourceUrl: sourceUrl, context: context, posts: posts, createdAt: new Date().toISOString() };
