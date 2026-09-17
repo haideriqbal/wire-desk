@@ -282,7 +282,7 @@
   // voice" so neither task competes with the other in one pass.
   async function runResearch(headline, sourceUrl, context, signal) {
     var body = {
-      model: "google/gemini-3.8-flash",
+      models: ["google/gemini-3.8-flash", "anthropic/claude-sonnet-5"],
       messages: [
         { role: "system", content: RESEARCH_INSTRUCTIONS },
         { role: "user", content: buildUserPrompt(headline, sourceUrl, context) }
